@@ -81,11 +81,9 @@ class Hadoop(clustersetup.ClusterSetup):
 
     def __init__(self, hadoop_tmpdir='/mnt/hadoop'):
         self.hadoop_tmpdir = hadoop_tmpdir
-
-        # used by dumbo only
-        self.hadoop_home = '/usr'
-        self.hadoop_log = '/var/log/hadoop'
-        self.hadoop_conf = '/etc/hadoop'
+        self.hadoop_home = '/opt/hadoop'
+        self.hadoop_log = '/opt/hadoop/logs'
+        self.hadoop_conf = '/opt/hadoop/conf'
         self.centos_java_home = '/usr/lib/jvm/java'
         self.centos_alt_cmd = 'alternatives'
         self.ubuntu_javas = ['/usr/lib/jvm/java-6-sun/jre',
@@ -163,15 +161,16 @@ class Hadoop(clustersetup.ClusterSetup):
         self._setup_hadoop_dir(node, userdir, user, 'hadoop')
         hdfsdir = posixpath.join(self.hadoop_tmpdir, 'hadoop-hdfs')
         if not node.ssh.isdir(hdfsdir):
-            node.ssh.execute("su hdfs -c 'hadoop namenode -format'")
+            node.ssh.execute("%s/bin/hadoop namenode -format" % self.hadoop_home)
         self._setup_hadoop_dir(node, hdfsdir, 'hdfs', 'hadoop')
         self._setup_hadoop_dir(node, self.hadoop_log, 'hdfs', 'hadoop')
 
     def _setup_dumbo(self, node):
-        if not node.ssh.isfile('/etc/dumbo.conf'):
-            f = node.ssh.remote_file('/etc/dumbo.conf')
-            f.write('[hadoops]\nstarcluster: %s\n' % self.hadoop_home)
-            f.close()
+        if node.ssh.isfile('/etc/dumbo.conf'):
+            node.ssh.execute('rm /etc/dumbo.conf');
+        f = node.ssh.remote_file('/etc/dumbo.conf')
+        f.write('[hadoops]\nstarcluster: %s\n' % self.hadoop_home)
+        f.close()
 
     def _configure_hadoop(self, master, nodes, user):
         log.info("Configuring Hadoop...")
@@ -230,36 +229,9 @@ class Hadoop(clustersetup.ClusterSetup):
         node.ssh.execute("chown -R %s:hadoop %s" % (user, path))
         node.ssh.execute("chmod -R %s %s" % (permission, path))
 
-    def _start_datanode(self, node):
-        node.ssh.execute('/etc/init.d/hadoop-datanode restart')
-
-    def _start_tasktracker(self, node):
-        node.ssh.execute('/etc/init.d/hadoop-tasktracker restart')
-
     def _start_hadoop(self, master, nodes):
-        log.info("Starting namenode...")
-        master.ssh.execute('/etc/init.d/hadoop-namenode restart')
-        log.info("Starting secondary namenode...")
-        master.ssh.execute('/etc/init.d/hadoop-secondarynamenode restart')
-        log.info("Starting datanode on all nodes...")
-        for node in nodes:
-            self.pool.simple_job(self._start_datanode, (node,),
-                                 jobid=node.alias)
-        self.pool.wait()
-        log.info("Starting jobtracker...")
-        # having problems with the permissions on the log directory created by namenode
-        for node in nodes:
-            self.pool.simple_job(self._setup_hadoop_dir, (node, self.hadoop_log, 'hdfs', 'hadoop'),
-                                 jobid=node.alias)
-        self.pool.wait()
-
-        master.ssh.execute('/etc/init.d/hadoop-jobtracker restart')
-        master.ssh.execute("rm -rf %s/*" % self.hadoop_log)
-        log.info("Starting tasktracker on all nodes...")
-        for node in nodes:
-            self.pool.simple_job(self._start_tasktracker, (node,),
-                                 jobid=node.alias)
-        self.pool.wait()
+        log.info("Starting hadoop...")
+        master.ssh.execute('%s/bin/start-all.sh' % self.hadoop_home)
 
     def _open_ports(self, master):
         ports = [50070, 50030]
